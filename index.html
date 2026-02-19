@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Runner</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
+        canvas { display: block; }
+        #ui { position: fixed; top: 10px; width: 100%; text-align: center; color: #0ff; font-size: 22px; z-index: 5; pointer-events: none; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .btn-main { padding: 15px 40px; font-size: 20px; color: #000; background: #0ff; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        .controls { position: fixed; bottom: 20px; width: 100%; display: flex; justify-content: space-around; z-index: 50; }
+        .ctrl-btn { width: 70px; height: 70px; background: rgba(0, 255, 255, 0.2); border: 2px solid #0ff; color: #0ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">SCORE: 0</div>
+
+    <div id="startScreen" class="overlay">
+        <h1 style="color: #0ff;">NEON RUNNER</h1>
+        <button class="btn-main" id="startBtn">START GAME</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay hidden">
+        <h1 style="color: #ff0055;">GAME OVER</h1>
+        <button class="btn-main" id="retryBtn" style="background:#ff0055">RETRY</button>
+    </div>
+
+    <div class="controls">
+        <div class="ctrl-btn" id="leftBtn">LEFT</div>
+        <div class="ctrl-btn" id="rightBtn">RIGHT</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let score, speed, gameActive, obstacles, coins, player, lastSpawnTime;
+let boostTimer = 0;
+let slowTimer = 0;
+
+const coinSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-bonus-229.wav");
+const crashSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.wav");
+const boostSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-fast-small-sweep-transition-166.wav");
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let lanes;
+function updateLanes() {
+    lanes = [canvas.width * 0.2, canvas.width * 0.5, canvas.width * 0.8];
+}
+updateLanes();
+window.addEventListener('resize', updateLanes);
+
+function resetStats() {
+    score = 0;
+    speed = 10;
+    gameActive = false;
+    obstacles = [];
+    coins = [];
+    lastSpawnTime = 0;
+    boostTimer = 0;
+    slowTimer = 0;
+    player = { lane: 1, x: lanes[1] };
+}
+
+function startGame() {
+    resetStats();
+    gameActive = true;
+    document.getElementById('startScreen').classList.add('hidden');
+    document.getElementById('gameOverScreen').classList.add('hidden');
+    loop();
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('retryBtn').addEventListener('click', startGame);
+
+document.getElementById('leftBtn').addEventListener('touchstart', (e) => {
+    e.preventDefault(); if (player.lane > 0) player.lane--;
+});
+document.getElementById('rightBtn').addEventListener('touchstart', (e) => {
+    e.preventDefault(); if (player.lane < 2) player.lane++;
+});
+
+function spawnObjects() {
+    if (Date.now() - lastSpawnTime > 800) {   // obstacles closer
+        obstacles.push({ lane: Math.floor(Math.random() * 3), y: -50 });
+        
+        // random coin spawn
+        if (Math.random() < 0.7) {
+            let type = "normal";
+            if (Math.random() < 0.2) type = "boost";
+            if (Math.random() < 0.1) type = "slow";
+            coins.push({ lane: Math.floor(Math.random() * 3), y: -100, type: type });
+        }
+        lastSpawnTime = Date.now();
+    }
+}
+
+function update() {
+    if (!gameActive) return;
+
+    score++;
+    player.x += (lanes[player.lane] - player.x) * 0.2;
+
+    spawnObjects();
+
+    if (boostTimer > 0) boostTimer--;
+    if (slowTimer > 0) slowTimer--;
+
+    let currentSpeed = speed;
+    if (boostTimer > 0) currentSpeed = speed + 6;
+    if (slowTimer > 0) currentSpeed = speed - 5;
+
+    obstacles.forEach((obs, i) => {
+        obs.y += currentSpeed;
+
+        if (obs.y > canvas.height - 150 && obs.y < canvas.height - 80 && player.lane === obs.lane) {
+            crashSound.play();
+            gameActive = false;
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+        }
+
+        if (obs.y > canvas.height) obstacles.splice(i, 1);
+    });
+
+    coins.forEach((coin, i) => {
+        coin.y += currentSpeed;
+
+        if (coin.y > canvas.height - 150 && coin.y < canvas.height - 80 && player.lane === coin.lane) {
+            coinSound.play();
+            score += 200;
+
+            if (coin.type === "boost") {
+                boostTimer = 200;
+                boostSound.play();
+            }
+
+            if (coin.type === "slow") {
+                slowTimer = 200;
+            }
+
+            coins.splice(i, 1);
+        }
+
+        if (coin.y > canvas.height) coins.splice(i, 1);
+    });
+
+    if (score % 1500 === 0) speed += 0.5;
+}
+
+function draw() {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Obstacles
+    ctx.fillStyle = "#ff0055";
+    obstacles.forEach(obs => ctx.fillRect(lanes[obs.lane] - 40, obs.y, 80, 20));
+
+    // Coins
+    coins.forEach(coin => {
+        if (coin.type === "normal") ctx.fillStyle = "yellow";
+        if (coin.type === "boost") ctx.fillStyle = "lime";
+        if (coin.type === "slow") ctx.fillStyle = "cyan";
+        ctx.beginPath();
+        ctx.arc(lanes[coin.lane], coin.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Player
+    ctx.fillStyle = "#0ff";
+    ctx.fillRect(player.x - 25, canvas.height - 130, 50, 50);
+
+    document.getElementById('ui').innerHTML = 
+        "SCORE: " + Math.floor(score/10) +
+        " | BOOST: " + boostTimer +
+        " | SLOW: " + slowTimer;
+}
+
+function loop() {
+    if (!gameActive) return;
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+window.onload = resetStats;
+</script>
+</body>
+</html>
